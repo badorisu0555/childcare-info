@@ -4,8 +4,6 @@ ipykernel
 tweepy
 requests
 boto3
-langchain_aws
-langchain
 emoji
 python-dotenv
 
@@ -19,3 +17,6 @@ feedparser
 bs4
 
 scikit-learn
+
+langchain_core
+anthropic
