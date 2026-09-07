@@ -5,21 +5,45 @@ from langchain_core.prompts import PromptTemplate
 import os
 from dotenv import load_dotenv
 import anthropic
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone , date
 from boto3.dynamodb.conditions import Key
-from dateutil.relativedelta import relativedelta
-from datetime import date
+from dateutil.relativedelta import relativedelta 
 import json
+import re
+from logging import getLogger , StreamHandler , Formatter , DEBUG , INFO , ERROR , WARNING , CRITICAL
 
+logger = getLogger(__name__)
+handler = StreamHandler()
+handler.setLevel(DEBUG)
+formatter = Formatter('[%(levelname)s%(asctime)s%(message)s%(name)s]')
+handler.setFormatter(formatter)
+logger.setLevel(DEBUG)
+logger.addHandler(handler)
+
+logger.info('1_deliver_contents.py is starting...')
 JST = timezone(timedelta(hours=9))
 
 def load_api_key():
     # override=True にすることで、.env のセットアップが既存の環境変数を上書きします
+    logger.info('Loading API key from .env file...')
     env_path = os.path.join(os.path.dirname(__file__), "../.env")
     load_dotenv(dotenv_path=env_path, override=True)
     os.environ["ANTHROPIC_API_KEY"] = os.getenv("Anthropic_API_Key")
 
+def extract_json(text):
+    if text is None:
+        return None
+    match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    if match:
+        return match.group(1)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+    return text
+
 def create_response(prompt_text,today,deliverycontent,userprofile,categoryscore):
+    logger.info('Creating AI response...')
     client = anthropic.Anthropic()
     prompt = PromptTemplate(
         input_variables=["today", "deliverycontent", "userprofile", "categoryscore"],
@@ -42,12 +66,13 @@ def create_response(prompt_text,today,deliverycontent,userprofile,categoryscore)
 
     answer_text = None
     for block in message.content:
-        if block.type == "text":  
+        if block.type == "text":
             answer_text = block.text
 
-    return answer_text
+    return extract_json(answer_text)
 
 def create_childhood_content(deliverycontent,userprofile,categoryscore):
+    logger.info('Creating childhood content from dynamodb...')
     load_api_key()
 
     prompt_path = os.path.join(os.path.dirname(__file__), "../app/api/prompt.txt")
@@ -58,6 +83,7 @@ def create_childhood_content(deliverycontent,userprofile,categoryscore):
     return answer
 
 def get_dynamo_data(table_name,user_id,index_name=None,days=None,region_name='ap-northeast-1'):
+    logger.info(f'Getting data from DynamoDB table: {table_name}, user_id: {user_id}, index_name: {index_name}, days: {days}')
     dynamodb = boto3.resource('dynamodb', region_name=region_name)
     table = dynamodb.Table(table_name)
 
@@ -92,17 +118,6 @@ def calc_age_month(birth_date):
     years_plus_month = round(date_difference.years + date_difference.months / 12, 1)
     return years_plus_month
 
-CATEGORY_NAME_MAP = {
-    "sleep": "睡眠",
-    "food": "食事・栄養",
-    "growth": "発達・成長",
-    "health": "健康・体調管理",
-    "safety": "安全",
-    "play": "遊び・おでかけ",
-    "daycare": "保育園・制度",
-    "parent_care": "親のケア",
-}
-
 def process_category_scores(categoryscore):
     categories = set()
     for key in categoryscore:
@@ -121,6 +136,7 @@ env_path = os.path.join(os.path.dirname(__file__), "../.env")
 load_dotenv(dotenv_path=env_path, override=True)
 LINE_user_id = os.getenv("LINE_user_id")
 
+
 table_name_list = [
     "childcare-info-tests-table1-deliverycontent",
     "childcare-info-tests-table2-userprofile",
@@ -128,10 +144,12 @@ table_name_list = [
 ]
 
 # Table1: delivery_id(PK)とは別に、「あるuser_idの直近N日分」を検索したいので、GSI1(PK: user_id, SK: delivered_at)を作成しました。そのためindex_nameを指定してqueryする必要があります。
+logger.info('Getting delivery content from DynamoDB...')
 deliverycontent = get_dynamo_data(table_name_list[0], LINE_user_id, index_name="GSI1", days=5)
 deliverycontent = [{"サマリー":d["summary"],"カテゴリー":d["category"]} for d in deliverycontent]
 
 # 以下の二つは、user_idで一意に取得できるので、index_nameは不要でOKです。
+logger.info('Getting user profile from DynamoDB...')
 userprofile = get_dynamo_data(table_name_list[1], LINE_user_id)
 userprofile = {
     "価値観": userprofile["values"],
@@ -139,10 +157,27 @@ userprofile = {
         {"子供の名前":c["child_name"],"月齢": calc_age_month(c["birth_date"])} for c in userprofile["children"]
     ]}
 
+CATEGORY_NAME_MAP = {
+    "sleep": "睡眠",
+    "food": "食事・栄養",
+    "growth": "発達・成長",
+    "health": "健康・体調管理",
+    "safety": "安全",
+    "play": "遊び・おでかけ",
+    "daycare": "保育園・制度",
+    "parent_care": "親のケア",
+}
+
+logger.info('Getting category scores from DynamoDB...')
 categoryscore = get_dynamo_data(table_name_list[2], LINE_user_id)
 categoryscore = process_category_scores(categoryscore)
 
+logger.info('Creating childhood content...')
 answer = create_childhood_content(deliverycontent, userprofile, categoryscore)
 print(repr(answer))
 parsed = json.loads(answer)
 print(json.dumps(parsed, indent=2, ensure_ascii=False))
+
+output_path = os.path.join(os.path.dirname(__file__), "output.json")
+with open(output_path, "w", encoding="utf-8") as f:
+    json.dump(parsed, f, indent=2, ensure_ascii=False)
