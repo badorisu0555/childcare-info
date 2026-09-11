@@ -96,19 +96,29 @@ def get_dynamo_data(table_name,user_id,index_name=None,days=None,region_name='ap
         start_time_str = (now_jst - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S+09:00")
         end_time_str = now_jst.strftime("%Y-%m-%dT%H:%M:%S+09:00")
 
-        response = table.query(
-            IndexName = index_name,
-            KeyConditionExpression=(
-                Key("user_id").eq(user_id) &
-                Key("delivered_at").between(start_time_str, end_time_str)
+        try:
+            response = table.query(
+                IndexName = index_name,
+                KeyConditionExpression=(
+                    Key("user_id").eq(user_id) &
+                    Key("delivered_at").between(start_time_str, end_time_str)
+                )
             )
-        )
+        except ClientError as e:
+            # 読み取りに失敗した日はコンテンツを生成できないため配信自体をスキップする方針。
+            # ALARM: プレフィックスはCloudWatch Logsメトリクスフィルタで拾うための目印(他の失敗と区別するため)
+            logger.error(f"[ALARM:DYNAMO_READ_FAILED] table={table_name}, user_id={user_id}, error={e}")
+            raise
 
         items = response.get('Items', [])
         return items
 
     else:
-        response = table.get_item(Key={"user_id": user_id})
+        try:
+            response = table.get_item(Key={"user_id": user_id})
+        except ClientError as e:
+            logger.error(f"[ALARM:DYNAMO_READ_FAILED] table={table_name}, user_id={user_id}, error={e}")
+            raise
         return response.get("Item")
 
 def calc_age_month(birth_date):
