@@ -169,6 +169,9 @@ def push_line_message(user_id, flex_contents):
         # LINE APIがエラーを返した場合のログ出力を強化
         logger.error(f"[ERROR] LINE API Error: {response.status_code}")
         logger.error(f"[ERROR] Response Body: {response.text}")
+        # ここで例外を送出しないと、LINE配信に失敗してもLambdaは正常終了(exit code 0)扱いになり、
+        # CloudWatchアラームがLambdaの Errors メトリクスで検知できなくなるため、あえて呼び出し元に伝播させる
+        raise RuntimeError(f"LINE API Error: status={response.status_code}, body={response.text}")
 
     return response
 
