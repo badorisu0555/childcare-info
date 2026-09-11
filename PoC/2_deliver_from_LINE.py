@@ -18,13 +18,10 @@ logger.addHandler(handler)
 logger.info('2_deliver_from_LINE.py is starting...')
 JST = timezone(timedelta(hours=9))
 
-env_path = os.path.join(os.path.dirname(__file__), "../.env")
-load_dotenv(dotenv_path=env_path, override=True)
-LINE_user_id = os.getenv("LINE_user_id")
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-
-TABLE1_NAME = "childcare-info-tests-table1-deliverycontent"
-
+def get_ssm_parameter(parameter_name):
+    ssm = boto3.client("ssm")
+    response = ssm.get_parameter(Name=parameter_name , WithDecryption=True)
+    return response["Parameter"]["Value"]
 
 def write_delivery_contents(generated_content, user_id):
     logger.info('Writing delivery contents to DynamoDB...')
@@ -171,6 +168,11 @@ def push_line_message(user_id, flex_contents):
         logger.error(f"[ERROR] Response Body: {response.text}")
 
     return response
+
+LINE_user_id = get_ssm_parameter("/childcare-info/LINE_user_id")
+LINE_CHANNEL_ACCESS_TOKEN = get_ssm_parameter("/childcare-info/LINE_CHANNEL_ACCESS_TOKEN")
+TABLE1_NAME = "childcare-info-tests-table1-deliverycontent"
+
 
 logger.info('opening output.json...')
 output_path = os.path.join(os.path.dirname(__file__), "output.json")

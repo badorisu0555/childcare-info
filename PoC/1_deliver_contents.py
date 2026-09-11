@@ -23,12 +23,10 @@ logger.addHandler(handler)
 logger.info('1_deliver_contents.py is starting...')
 JST = timezone(timedelta(hours=9))
 
-def load_api_key():
-    # override=True にすることで、.env のセットアップが既存の環境変数を上書きします
-    logger.info('Loading API key from .env file...')
-    env_path = os.path.join(os.path.dirname(__file__), "../.env")
-    load_dotenv(dotenv_path=env_path, override=True)
-    os.environ["ANTHROPIC_API_KEY"] = os.getenv("Anthropic_API_Key")
+def get_ssm_parameter(parameter_name):
+    ssm = boto3.client("ssm")
+    response = ssm.get_parameter(Name=parameter_name , WithDecryption=True)
+    return response["Parameter"]["Value"]
 
 def extract_json(text):
     if text is None:
@@ -43,7 +41,6 @@ def extract_json(text):
     return text
 
 def create_response(prompt_text,today,deliverycontent,userprofile,categoryscore):
-    logger.info('Creating AI response...')
     client = anthropic.Anthropic()
     prompt = PromptTemplate(
         input_variables=["today", "deliverycontent", "userprofile", "categoryscore"],
@@ -58,10 +55,8 @@ def create_response(prompt_text,today,deliverycontent,userprofile,categoryscore)
             "role": "user",
             "content": prompt,
         }
-    ],
-    tools = [
-        {"type":"web_search_20260318","name":"web_search"}
     ]
+    # ,tools = [{"type":"web_search_20260318","name":"web_search"}] #コスト削減のためwebsearchは一旦外す。必要に応じて再度追加すること。
     )
 
     answer_text = None
@@ -72,8 +67,7 @@ def create_response(prompt_text,today,deliverycontent,userprofile,categoryscore)
     return extract_json(answer_text)
 
 def create_childhood_content(deliverycontent,userprofile,categoryscore):
-    logger.info('Creating childhood content from dynamodb...')
-    load_api_key()
+    get_ssm_parameter("/childcare-info/CLAUDE_API_KEY")
 
     prompt_path = os.path.join(os.path.dirname(__file__), "../app/api/prompt.txt")
     with open(prompt_path, "r", encoding="utf-8") as f:
@@ -132,10 +126,7 @@ def process_category_scores(categoryscore):
     categoryscore = sorted(result.items() , key=lambda x:x[1],reverse=True)[:3]
     return [{"カテゴリー":CATEGORY_NAME_MAP[cat],"スコア":score} for cat,score in categoryscore]
 
-env_path = os.path.join(os.path.dirname(__file__), "../.env")
-load_dotenv(dotenv_path=env_path, override=True)
-LINE_user_id = os.getenv("LINE_user_id")
-
+LINE_USER_ID = os.getenv("LINE_USER_ID")
 
 table_name_list = [
     "childcare-info-tests-table1-deliverycontent",
@@ -145,12 +136,12 @@ table_name_list = [
 
 # Table1: delivery_id(PK)とは別に、「あるuser_idの直近N日分」を検索したいので、GSI1(PK: user_id, SK: delivered_at)を作成しました。そのためindex_nameを指定してqueryする必要があります。
 logger.info('Getting delivery content from DynamoDB...')
-deliverycontent = get_dynamo_data(table_name_list[0], LINE_user_id, index_name="GSI1", days=5)
+deliverycontent = get_dynamo_data(table_name_list[0], LINE_USER_ID, index_name="GSI1", days=5)
 deliverycontent = [{"サマリー":d["summary"],"カテゴリー":d["category"]} for d in deliverycontent]
 
 # 以下の二つは、user_idで一意に取得できるので、index_nameは不要でOKです。
 logger.info('Getting user profile from DynamoDB...')
-userprofile = get_dynamo_data(table_name_list[1], LINE_user_id)
+userprofile = get_dynamo_data(table_name_list[1], LINE_USER_ID)
 userprofile = {
     "価値観": userprofile["values"],
     "子供の情報":[
@@ -169,7 +160,7 @@ CATEGORY_NAME_MAP = {
 }
 
 logger.info('Getting category scores from DynamoDB...')
-categoryscore = get_dynamo_data(table_name_list[2], LINE_user_id)
+categoryscore = get_dynamo_data(table_name_list[2], LINE_USER_ID)
 categoryscore = process_category_scores(categoryscore)
 
 logger.info('Creating childhood content...')
