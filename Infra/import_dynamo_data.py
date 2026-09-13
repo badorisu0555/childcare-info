@@ -5,19 +5,11 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 
-# override=True にすることで、.env のセットアップが既存の環境変数を上書きします
-env_path = os.path.join(os.path.dirname(__file__), "../.env")
-load_dotenv(dotenv_path=env_path, override=True)
-LINE_user_id = os.getenv("LINE_user_id")
 
-table_name_list = [
-    "childcare-info-tests-table1-deliverycontent",
-    "childcare-info-tests-table2-userprofile",
-    "childcare-info-tests-table3-categoryscore",
-]
-
-JST = timezone(timedelta(hours=9))
-
+def get_ssm_parameter(parameter_name):
+    ssm = boto3.client("ssm")
+    response = ssm.get_parameter(Name=parameter_name, WithDecryption=True)
+    return response["Parameter"]["Value"]
 
 def dynamo_batch_write(import_data_df, table_name, region_name='ap-northeast-1'):
     data = import_data_df.to_dict(orient='records')
@@ -34,6 +26,14 @@ def dynamo_batch_write(import_data_df, table_name, region_name='ap-northeast-1')
     print(f"Successfully wrote {len(data)} items to {table_name} table.")
     return "Successfully wrote to DynamoDB"
 
+table_name_list = [
+    "childcare-info-table1-deliverycontent",
+    "childcare-info-table2-userprofile",
+    "childcare-info-table3-categoryscore",
+]
+
+JST = timezone(timedelta(hours=9))
+LINE_user_id = get_ssm_parameter("/childcare-info/LINE_USER_ID")
 
 # ---- Table1: 配信コンテンツ管理 ----
 now_jst = datetime.now(JST)
@@ -65,7 +65,7 @@ import_data2 = {
         {'child_name': '子供1', 'birth_date': '2024-12-19'},
         {'child_name': '子供2', 'birth_date': '2026-08-10'},
     ]],
-    'values': ['共働き、寝かしつけに悩んでいる。育児本より実体験ベースの情報を重視。'],
+    'values': ['子供が順調に成長しているかが気になる。どんな遊びをすればよいか悩みがち'],
 }
 
 # ---- Table3: カテゴリ別累積スコア ----

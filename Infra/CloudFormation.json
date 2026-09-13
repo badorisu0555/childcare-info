@@ -225,7 +225,7 @@
         "FunctionName": { "Fn::Sub": "${ProjectName}-deliver-contents" },
         "CodeUri": "../app/deliver_contents/",
         "Handler": "main.lambda_handler",
-        "Runtime": "python3.13",
+        "Runtime": "python3.12",
         "Timeout": 120,
         "MemorySize": 512,
         "Role": { "Fn::GetAtt": ["Lambda1ExecutionRole", "Arn"] }
@@ -264,7 +264,7 @@
       "Properties": {
         "LayerName": { "Fn::Sub": "${ProjectName}-line-bot-sdk" },
         "ContentUri": "../line-bot-sdk-layer/",
-        "CompatibleRuntimes": ["python3.13"],
+        "CompatibleRuntimes": ["python3.12"],
         "RetentionPolicy": "Delete"
       }
     },
@@ -283,16 +283,31 @@
         "FunctionName": { "Fn::Sub": "${ProjectName}-line-webhook" },
         "CodeUri": "../app/line_webhook/",
         "Handler": "postback.lambda_handler",
-        "Runtime": "python3.13",
+        "Runtime": "python3.12",
         "Timeout": 10,
         "MemorySize": 256,
         "Role": { "Fn::GetAtt": ["Lambda2ExecutionRole", "Arn"] },
-        "Layers": [{ "Ref": "LineBotSdkLayer" }],
-        "FunctionUrlConfig": {
-          "AuthType": "NONE"
-        }
+        "Layers": [{ "Ref": "LineBotSdkLayer" }]
       },
       "DependsOn": ["Lambda2LogGroup"]
+    },
+
+    "Lambda2FunctionUrl": {
+      "Type": "AWS::Lambda::Url",
+      "Properties": {
+        "TargetFunctionArn": { "Ref": "Lambda2Function" },
+        "AuthType": "NONE"
+      }
+    },
+
+    "Lambda2FunctionUrlPublicPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "Lambda2Function" },
+        "Action": "lambda:InvokeFunctionUrl",
+        "Principal": "*",
+        "FunctionUrlAuthType": "NONE"
+      }
     },
 
     "AlertTopic": {
@@ -409,9 +424,9 @@
     }
   },
   "Outputs": {
-    "Lambda2FunctionUrl": {
+    "Lambda2FunctionUrlOutput": {
       "Description": "LINE Developersコンソールで手動登録するWebhook URL",
-      "Value": { "Fn::GetAtt": ["Lambda2Function", "FunctionUrl"] }
+      "Value": { "Fn::GetAtt": ["Lambda2FunctionUrl", "FunctionUrl"] }
     },
     "AlertTopicArn": {
       "Description": "CloudWatchアラーム通知先のSNSトピック",

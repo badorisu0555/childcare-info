@@ -28,4 +28,4 @@ def register_parameters():
         print(f"{ssm_name}をSSMパラメータストアに登録しました。")
 
 if __name__ == "__main__":
-    
+    register_parameters()
