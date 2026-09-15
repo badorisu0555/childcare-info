@@ -22,3 +22,5 @@ langchain_core
 anthropic
 
 dateutil
+
+aws-sam-cli

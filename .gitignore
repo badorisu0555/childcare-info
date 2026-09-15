@@ -4,6 +4,10 @@ venv/
 template/
 no-use/
 
+# SAM build artifacts / local deploy config (contains AlertEmail etc.)
+.aws-sam/
+samconfig.toml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
