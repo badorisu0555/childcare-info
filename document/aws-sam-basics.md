@@ -1,8 +1,10 @@
-# AWS SAMの基本と、このリポジトリでの使い方
+# AWS SAMの基本と、実際のテンプレートでの使い方
 
 ## この記事について
 
-このリポジトリの`Infra/CloudFormation.json`は、ファイル名こそ「CloudFormation」ですが、実は**AWS SAM(Serverless Application Model)**のテンプレートです。冒頭に次の1行があるかどうかで見分けられます。
+子育て世代向けに、毎朝その日役立ちそうな情報をLINEで届ける、というアプリを個人開発しています。バックエンドはAWS Lambdaで組んでいて、そのインフラ一式(Lambda関数、DynamoDB、CloudWatchアラームなど)を1つのテンプレートファイルにコードとして定義しています。
+
+このテンプレートは、ファイル名こそ「CloudFormation」ですが、実は**AWS SAM(Serverless Application Model)**のテンプレートです。冒頭に次の1行があるかどうかで見分けられます。
 
 ```json
 "Transform": "AWS::Serverless-2016-10-31"
@@ -12,7 +14,7 @@
 
 - SAMとは何か、使うとどんなメリットがあるのか
 - CloudFormationとの違いは何か
-- このリポジトリでは実際にSAMを使って何を構築しているのか
+- 今回のアプリでは実際にSAMを使って何を構築しているのか
 
 を順番に説明します。
 
@@ -34,7 +36,7 @@ CloudFormationは「AWSの各種リソースをコードで定義して、まと
 
 ### 1. 記述量が減る
 
-このリポジトリの`Lambda1Function`を例にすると、SAMではこれだけの記述でLambda関数を定義できます。
+先ほどのアプリの、毎朝コンテンツを配信するLambda関数を例にすると、SAMではこれだけの記述でLambda関数を定義できます。
 
 ```json
 "Lambda1Function": {
@@ -65,7 +67,7 @@ SAMには`sam`コマンドという専用のCLIツールがあり、次のよう
 
 ### 3. サーバーレスによくある構成が短く書ける
 
-Lambda関数以外にも、`AWS::Serverless::Api`(API Gateway)や`AWS::Serverless::LayerVersion`(Lambda Layer)など、サーバーレス構成でよく使うリソースがSAM独自の書き方で用意されています。このリポジトリでは、後述する`LineBotSdkLayer`がその例です。
+Lambda関数以外にも、`AWS::Serverless::Api`(API Gateway)や`AWS::Serverless::LayerVersion`(Lambda Layer)など、サーバーレス構成でよく使うリソースがSAM独自の書き方で用意されています。今回のアプリでは、後述する`LineBotSdkLayer`がその例です。
 
 ## CloudFormationとの違い
 
@@ -79,18 +81,18 @@ SAMは「別物」ではなく「CloudFormationの上に乗っている拡張」
 | ローカル実行 | 標準機能では無い | `sam local invoke`でLambdaをローカル実行できる |
 | 使える場面 | あらゆるAWSリソース | Lambda中心のサーバーレス構成 |
 
-一番の理解のポイントは、**SAMのテンプレートは最終的にCloudFormationのテンプレートに変換されてからデプロイされる**、という点です。実際、このリポジトリの`Lambda1Function`(`AWS::Serverless::Function`)も、デプロイ時には内部で`AWS::Lambda::Function`と`AWS::Lambda::Function`用のS3コード配置に変換されています。そのため、SAM独自のリソースタイプと、通常のCloudFormationのリソースタイプが**同じテンプレートの中に混在していても問題ありません**。実際このリポジトリの`Infra/CloudFormation.json`でも、`AWS::Serverless::Function`(SAM)と`AWS::DynamoDB::Table`や`AWS::CloudWatch::Alarm`(通常のCloudFormation)が同じファイルの中に共存しています。
+一番の理解のポイントは、**SAMのテンプレートは最終的にCloudFormationのテンプレートに変換されてからデプロイされる**、という点です。実際、`Lambda1Function`(`AWS::Serverless::Function`)も、デプロイ時には内部で`AWS::Lambda::Function`とS3上のコード配置に変換されています。そのため、SAM独自のリソースタイプと、通常のCloudFormationのリソースタイプが**同じテンプレートの中に混在していても問題ありません**。実際、今回のテンプレートでも、`AWS::Serverless::Function`(SAM)と`AWS::DynamoDB::Table`や`AWS::CloudWatch::Alarm`(通常のCloudFormation)が同じファイルの中に共存しています。
 
 ## 今回のユースケース
 
 ### 何を作っているか
 
-`Infra/CloudFormation.json`は、このリポジトリのアプリケーション全体のAWSインフラをコードで定義しています。役割は大きく2つのLambda関数です。
+改めて整理すると、今回のアプリは次の2つのLambda関数が中心です。
 
 - **Lambda1(`deliver-contents`)**: 毎朝決まった時刻に自動起動し、コンテンツを生成してLINEに配信する
 - **Lambda2(`line-webhook`)**: LINE側からのpostback(ユーザーの操作)を受け取る
 
-これに加えて、データの保存先であるDynamoDBのテーブル、処理が失敗したときにメールで気付けるようにするCloudWatchアラーム一式が、同じテンプレートの中にまとめて定義されています。
+これに加えて、データの保存先であるDynamoDBのテーブル、処理が失敗したときにメールで気付けるようにするCloudWatchアラーム一式を、1つのテンプレートファイルの中にまとめて定義しています。
 
 ```
 [EventBridge(毎朝)] → Lambda1(コンテンツ生成・LINE配信) → DynamoDB
@@ -126,11 +128,11 @@ Lambda Layerは、複数のLambda関数で共通して使うライブラリな�
 
 **その他のリソースは通常のCloudFormationのまま**
 
-一方で、DynamoDBのテーブル(`AWS::DynamoDB::Table`)、毎朝の起動スケジュール(`AWS::Events::Rule`)、失敗を検知するCloudWatchアラーム(`AWS::CloudWatch::Alarm`など)は、SAM専用のリソースタイプが用意されていないため、通常のCloudFormationの書き方のまま定義されています。「サーバーレスの定番構成(Lambda・Layer)だけSAMの恩恵を受けて、それ以外は素のCloudFormationで書く」という、両者が混在した構成になっているのが、このテンプレートの特徴です。
+一方で、DynamoDBのテーブル(`AWS::DynamoDB::Table`)、毎朝の起動スケジュール(`AWS::Events::Rule`)、失敗を検知するCloudWatchアラーム(`AWS::CloudWatch::Alarm`など)は、SAM専用のリソースタイプが用意されていないため、通常のCloudFormationの書き方のまま定義しています。「サーバーレスの定番構成(Lambda・Layer)だけSAMの恩恵を受けて、それ以外は素のCloudFormationで書く」という、両者が混在した構成になっているのが、このテンプレートの特徴です。
 
 ## まとめ
 
 - SAMは、CloudFormationの拡張機能で、Lambda中心のサーバーレス構成を短く書けるようにするもの
 - `Transform: AWS::Serverless-2016-10-31`の1行があるテンプレートがSAM
 - `sam build` / `sam deploy` / `sam local invoke`など専用CLIが使えるのもメリット
-- このリポジトリでは、Lambda関数本体とLambda Layerだけ`AWS::Serverless::*`(SAM)を使い、DynamoDBやCloudWatchアラームなどは通常のCloudFormationのリソースタイプのまま、1つのテンプレートに混在させている
+- 今回のアプリでは、Lambda関数本体とLambda Layerだけ`AWS::Serverless::*`(SAM)を使い、DynamoDBやCloudWatchアラームなどは通常のCloudFormationのリソースタイプのまま、1つのテンプレートに混在させている
