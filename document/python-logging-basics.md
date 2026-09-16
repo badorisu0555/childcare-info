@@ -22,9 +22,9 @@ logger.info('Creating childhood content is starting...')
 
 `print()`は「画面に文字を出す」だけの機能ですが、`logging`には次のような`print()`には無い機能があります。
 
-- **重要度(レベル)を分けられる**: 「デバッグ用の細かい情報」と「本当に困ったときのエラー」を区別できる
-- **出力先を後から変更・追加できる**: 画面だけでなく、ファイルやAWS CloudWatch Logsなど、複数の場所に同時に出力できる
-- **本番環境で出力量を調整できる**: 「本番ではINFO以上だけ出す」「開発中はDEBUGまで全部出す」のように、コードを変えずに出力量を制御できる
+- **重要度(レベル)を分けられる**: 「デバッグ用の細かい情報」と「本当に困ったときのエラー」を区別できる。例えばエラーの全体像を把握したいだけなのに、デバッグ用の細かい情報まで入っていると読むときに困る。
+- **出力先を後から変更・追加できる**: 画面だけでなく、ファイルやAWS CloudWatch Logsなど、複数の場所に同時に出力できる。またその設定変更が簡単にできる。
+- **本番環境で出力量を調整できる**: 「本番の環境ではINFO以上のログだけ出す」「開発中はDEBUGのログまで全部出す」のように、コードを変えずにログに出力される量を制御できる。
 
 AWS Lambdaのように「実行結果を直接目で見れない(CloudWatch Logsを見に行くしかない)」環境では、この「後から出力先やレベルを制御できる」という特性がとても重要になります。
 
@@ -62,9 +62,9 @@ handler = StreamHandler()
 ```
 **Handler(配達係)を作る**行です。`StreamHandler`は「標準出力(コンソール画面)に出力する」タイプのHandlerです。AWS Lambdaでは、標準出力に出したものが自動的にCloudWatch Logsに送られる仕組みになっているため、Lambda上でログを残すには基本的にこの`StreamHandler`で十分です。
 
-#### 参考: `StreamHandler`以外のHandler — `FileHandler`
+#### 参考: `StreamHandler`以外のHandler
 
-`logging`には`StreamHandler`以外にもHandlerの種類があり、代表的なものに**`FileHandler`**があります。
+Handlerは「ログをどこに出すか」を決める役割なので、**ログをファイルに出力するのか、コンソールにだけ表示させるのか、といった「どこに情報を出すのか」という設定はHandler側で行います**。`logging`には`StreamHandler`以外にもHandlerの種類があり、代表的なものに**`FileHandler`**があります。
 
 ```python
 from logging import FileHandler
@@ -85,6 +85,8 @@ file_handler = FileHandler('app.log', mode='a', encoding='utf-8')
 - 標準出力に出すだけで自動的にCloudWatch Logsに送られるため(=`StreamHandler`で十分なため)、わざわざファイルに書き出す必要がない
 
 つまり、このプロジェクトのコードが`StreamHandler`だけを使っているのは、「Lambda環境では、ファイルに書くよりCloudWatch Logsに送るほうが確実で扱いやすいから」という理由だと考えると理解しやすくなります。
+
+ほかにも、時間に基づいて出力先のファイルをローテーションする`TimedRotatingFileHandler`や、一定のファイルサイズを超えると新しいログファイルを作成する`RotatingFileHandler`といったHandlerもあります(いずれも`logging.handlers`モジュールに含まれます)。
 
 (`FileHandler`のより詳しい引数は[Python公式ドキュメント「logging.handlers」](https://docs.python.org/ja/3/library/logging.handlers.html#filehandler)を参照してください。)
 
@@ -134,6 +136,8 @@ logger.setLevel(DEBUG)
 ```
 **Logger自身が扱う最低レベルをDEBUGに設定する**行です。ここが重要なポイントで、**LoggerとHandler、両方にレベル設定がある**ことに注意してください(詳しくは次の章で説明します)。
 
+レベルは重要度の低い順に、`DEBUG < INFO < WARNING < ERROR < CRITICAL`という並びです。例えば`logger.setLevel(INFO)`にすると、`logger.debug(...)`で書いたログはLoggerの時点でブロックされ、Handlerまで届きません。
+
 ```python
 logger.addHandler(handler)
 ```
@@ -153,11 +157,7 @@ logger.info('Creating childhood content is starting...')
 
 どちらか一方でも「このログのレベルでは通さない」と判断されると、そのログは出力されません。**両方とも「これ以上の重要度なら通す」という設定なので、両方をDEBUGにしておくと、実質「全部通す」という意味になります**。
 
-レベルは重要度の低い順に、`DEBUG < INFO < WARNING < ERROR < CRITICAL`という並びです。例えば`logger.setLevel(INFO)`にすると、`logger.debug(...)`で書いたログはLoggerの時点でブロックされ、Handlerまで届きません。
-
-### なぜわざわざ2段階に分けているのか(実務での使いどころ)
-
-「両方DEBUGにしておけば全部通るだけなら、最初から1段階でよいのでは?」と思うかもしれません。この2段階フィルターが本当に活きるのは、**1つのLoggerに複数のHandlerをぶら下げて、Handlerごとに扱うレベルや出力先を変える**場合です。
+では、なぜわざわざ2段階に分けているのでしょうか。「両方DEBUGにしておけば全部通るだけなら、最初から1段階でよいのでは?」と思うかもしれません。この2段階フィルターが本当に活きるのは、**1つのLoggerに複数のHandlerをぶら下げて、Handlerごとに扱うレベルや出力先を変える**場合です。
 
 例えば「デバッグ用の細かいログは通常のログ置き場に出しつつ、エラーだけは別の監視・アラート用の出力先にも流したい」というケースを考えます。
 
@@ -195,17 +195,9 @@ logger.addHandler(alert_handler)
 | `logger.info(...)` | 「今どの処理をしているか」の進捗ログ | `Getting delivery content from DynamoDB...` |
 | `logger.error(...)` | 失敗を記録するログ。CloudWatchアラームの検知対象にもなる | `[ALARM:DYNAMO_READ_FAILED] table=..., error=...` |
 
-特に`logger.error`に`[ALARM:xxx]`という決まった文字列を含めているのは、[別記事(CloudWatchアラーム設計の型)](./cloudwatch-alarm-design-template.md)で解説した、**CloudWatch Logsのメトリクスフィルタでこの文字列を検索してアラームを発火させるため**です。「ログに何を書くか」は、単なるデバッグ用のメモではなく、監視の仕組みと直結している、という点がこのプロジェクトでの重要な使い方になっています。
+特に`logger.error`に`[ALARM:xxx]`という決まった文字列を含めているのは、**CloudWatch Logsのメトリクスフィルタでこの文字列を検索してアラームを発火させるため**です。「ログに何を書くか」は、単なるデバッグ用のメモではなく、監視の仕組みと直結している、という点がこのプロジェクトでの重要な使い方になっています。
 
 また、AWS Lambda環境では標準出力がそのままCloudWatch Logsに送られるため、`StreamHandler`(画面に出すHandler)だけで、追加のライブラリや設定をしなくてもクラウド上でログが確認できる、という点もLambdaならではのポイントです。
-
-## つまずきやすい注意点
-
-### 同じLoggerに`addHandler`を複数回呼ぶと、ログが重複する
-
-`getLogger(__name__)`は、**同じ名前で呼び出すと同じLoggerオブジェクトが返ってくる**という仕様があります。そのため、もし同じモジュールの初期化コード(冒頭の8行)が誤って2回実行されると、同じLoggerに`Handler`が2つ登録され、**1回の`logger.info(...)`でログが2行出力される**というバグになります。
-
-このプロジェクトでも、複数のスクリプトを1つのLambda関数にまとめる過程で、この初期化コードが重複してしまい、同じ問題が実際に発生しかけました。「ログの初期化コードは、1つのモジュールにつき1回だけ実行されるようにする」というのは、地味ですが気をつけるべきポイントです。
 
 ## まとめ
 
