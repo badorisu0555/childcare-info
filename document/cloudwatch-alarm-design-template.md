@@ -126,6 +126,8 @@ else:
 
 ## 4. SNSトピック
 
+SNS(Simple Notification Service)は、届いたメッセージをメール・SMS・Lambda・他システムのAPIなど複数の宛先に配信できる、AWSの通知サービスです。「メッセージの送り先(トピック)」と「そのトピックを購読する宛先(サブスクリプション)」を分けて管理でき、CloudWatchアラームを含む多くのAWSサービスが、通知の飛ばし先としてこのSNSを利用します。
+
 `AWS::SNS::Topic`と`AWS::SNS::Subscription`で、③のアラームが`AlarmActions`から通知を送る先のトピックと、そのトピックにメールアドレスを購読(Subscribe)させる設定です。CloudWatchアラーム自体はメールを直接送信できないため、通知を実際の配送先(ここではメール)に変換する仲介役としてSNSを挟みます。
 
 ```json
