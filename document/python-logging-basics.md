@@ -62,6 +62,32 @@ handler = StreamHandler()
 ```
 **Handler(配達係)を作る**行です。`StreamHandler`は「標準出力(コンソール画面)に出力する」タイプのHandlerです。AWS Lambdaでは、標準出力に出したものが自動的にCloudWatch Logsに送られる仕組みになっているため、Lambda上でログを残すには基本的にこの`StreamHandler`で十分です。
 
+#### 参考: `StreamHandler`以外のHandler — `FileHandler`
+
+`logging`には`StreamHandler`以外にもHandlerの種類があり、代表的なものに**`FileHandler`**があります。
+
+```python
+from logging import FileHandler
+
+# ログを指定したファイルに書き込むHandler
+file_handler = FileHandler('app.log', mode='a', encoding='utf-8')
+```
+
+| 項目 | 内容 |
+| --- | --- |
+| 役割 | ログを**指定したファイルに書き込む**Handler。実は`StreamHandler`を継承したクラスで、出力先を「コンソール」から「ファイル」に変えたものにあたる |
+| 主な引数 | `filename`(書き込み先のファイルパス。必須) / `mode`(書き込みモード。省略時は追記の`'a'`) / `encoding`(文字コード) / `delay`(`True`にすると、実際に最初のログが出力されるまでファイルを開かない) |
+| 使いどころ | ローカルPCやオンプレミスのサーバーなど、「ログをファイルとして残しておきたい」環境 |
+
+ただし、**AWS Lambdaでは`FileHandler`はあまり使いません**。理由は次の2点です。
+
+- Lambdaの実行環境で書き込みが許可されているのは`/tmp`ディレクトリのみで、しかも実行環境(コンテナ)が使い回されなければ**再実行のたびに消えてしまう**一時的な領域でしかない
+- 標準出力に出すだけで自動的にCloudWatch Logsに送られるため(=`StreamHandler`で十分なため)、わざわざファイルに書き出す必要がない
+
+つまり、このプロジェクトのコードが`StreamHandler`だけを使っているのは、「Lambda環境では、ファイルに書くよりCloudWatch Logsに送るほうが確実で扱いやすいから」という理由だと考えると理解しやすくなります。
+
+(`FileHandler`のより詳しい引数は[Python公式ドキュメント「logging.handlers」](https://docs.python.org/ja/3/library/logging.handlers.html#filehandler)を参照してください。)
+
 ```python
 handler.setLevel(DEBUG)
 ```
