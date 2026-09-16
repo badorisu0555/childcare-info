@@ -70,7 +70,33 @@ handler.setLevel(DEBUG)
 ```python
 formatter = Formatter('[%(levelname)s%(asctime)s%(message)s%(name)s]')
 ```
-**Formatter(整形係)を作る**行です。`%(levelname)s`(レベル名)、`%(asctime)s`(時刻)、`%(message)s`(ログ本文)、`%(name)s`(Logger名)といった、あらかじめ決まったプレースホルダーを組み合わせて、ログの見た目のテンプレートを決めています。
+**Formatter(整形係)を作る**行です。ログ1行の「見た目のテンプレート」を、あらかじめ決まったプレースホルダー(`%(xxx)s`の形式)を組み合わせて作ります。このコードで使われているプレースホルダーが何を表すかは次の通りです。
+
+| プレースホルダー | 意味 | 出力例 |
+| --- | --- | --- |
+| `%(levelname)s` | ログレベルの名前 | `INFO`, `ERROR` など |
+| `%(asctime)s` | ログが出力された時刻 | `2024-01-15 10:30:00,123` |
+| `%(message)s` | `logger.info(...)`などに渡した本文 | `Creating childhood content is starting...` |
+| `%(name)s` | Loggerの名前(`getLogger(__name__)`で渡した`__name__`の値) | `main` |
+
+(他にも`%(filename)s`や`%(lineno)d`など多数のプレースホルダーがあります。一覧は[Python公式ドキュメント「LogRecord属性」](https://docs.python.org/ja/3/library/logging.html#logrecord-attributes)を参照してください。)
+
+このプロジェクトの書式`'[%(levelname)s%(asctime)s%(message)s%(name)s]'`をそのまま当てはめると、実際の出力は次のようになります。
+
+```
+[INFO2024-01-15 10:30:00,123Creating childhood content is starting...main]
+```
+
+**プレースホルダーの間にスペースや`,`などの区切り文字が入っていないため、どこからどこまでが何の情報か非常に読みにくい**点に注意してください。区切り文字を入れると、例えば次のように読みやすくなります。
+
+```python
+# 項目の間にスペースや記号を入れて読みやすくした例
+formatter = Formatter('[%(levelname)s] %(asctime)s %(name)s: %(message)s')
+```
+
+```
+[INFO] 2024-01-15 10:30:00,123 main: Creating childhood content is starting...
+```
 
 ```python
 handler.setFormatter(formatter)
@@ -102,6 +128,36 @@ logger.info('Creating childhood content is starting...')
 どちらか一方でも「このログのレベルでは通さない」と判断されると、そのログは出力されません。**両方とも「これ以上の重要度なら通す」という設定なので、両方をDEBUGにしておくと、実質「全部通す」という意味になります**。
 
 レベルは重要度の低い順に、`DEBUG < INFO < WARNING < ERROR < CRITICAL`という並びです。例えば`logger.setLevel(INFO)`にすると、`logger.debug(...)`で書いたログはLoggerの時点でブロックされ、Handlerまで届きません。
+
+### なぜわざわざ2段階に分けているのか(実務での使いどころ)
+
+「両方DEBUGにしておけば全部通るだけなら、最初から1段階でよいのでは?」と思うかもしれません。この2段階フィルターが本当に活きるのは、**1つのLoggerに複数のHandlerをぶら下げて、Handlerごとに扱うレベルや出力先を変える**場合です。
+
+例えば「デバッグ用の細かいログは通常のログ置き場に出しつつ、エラーだけは別の監視・アラート用の出力先にも流したい」というケースを考えます。
+
+```python
+logger = getLogger(__name__)
+logger.setLevel(DEBUG)  # Logger側は広めに「DEBUG以上は扱う」としておく
+
+# 1つ目のHandler: 通常運用ログ用。DEBUG以上を全部出す
+debug_handler = StreamHandler()
+debug_handler.setLevel(DEBUG)
+logger.addHandler(debug_handler)
+
+# 2つ目のHandler: アラート用。ERROR未満はこのHandler側でブロックされる
+alert_handler = StreamHandler()
+alert_handler.setLevel(ERROR)
+logger.addHandler(alert_handler)
+```
+
+こうしておくと、
+
+- `logger.debug(...)` / `logger.info(...)` は `debug_handler` だけを通過する(`alert_handler`側で止められる)
+- `logger.error(...)` は両方のHandlerを通過する
+
+という制御が、**呼び出し側(`logger.error(...)`などを書く場所)のコードを一切変えずに**実現できます。「どのログをどこに送るか」をHandler側の設定だけでコントロールできることが、LoggerとHandlerを分けている最大のメリットです。
+
+現状このプロジェクトでは`StreamHandler`を1つだけ使い、Logger・Handlerとも同じ`DEBUG`に設定しているため、実質「全部同じ出力先(CloudWatch Logs)に流す」というシンプルな構成になっています。ただし仕組みとしては、将来「`[ALARM:...]`を含むエラーログだけを別のHandlerで拾って、別の通知チャネルに送る」といった拡張を、Logger呼び出し側のコード(`logger.error(...)`など)を変えずに追加できる、という点は覚えておくと良いポイントです。
 
 ## 今回のユースケースでの使い方
 
