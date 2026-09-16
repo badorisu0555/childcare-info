@@ -33,6 +33,26 @@ Lambdaで動くバッチ処理に対して、「特定の失敗パターンだ�
 logger.error(f"[ALARM:<検知したい事象の名前>] <調査に必要な情報>")
 ```
 
+### 実例(このリポジトリでの適用)
+
+`app/deliver_contents/main.py`でLINE配信APIの呼び出しに失敗した箇所の実装です。
+
+```python
+# app/deliver_contents/main.py
+
+if response.status_code == 200:
+    logger.info("Flex Messageが正常に送信されました")
+else:
+    # ALARM: プレフィックスはCloudWatch Logsメトリクスフィルタで拾うための目印(他の失敗と区別するため)
+    logger.error(f"[ALARM:LINE_DELIVERY_FAILED] status={response.status_code}, body={response.text}")
+    # ここで例外を送出しないと、LINE配信に失敗してもLambdaは正常終了(exit code 0)扱いになり、
+    # CloudWatchアラームがLambdaの Errors メトリクスで検知できなくなるため、あえて呼び出し元に伝播させる
+    raise RuntimeError(f"LINE API Error: status={response.status_code}, body={response.text}")
+```
+
+- `<検知したい事象の名前>` に当たる部分が `LINE_DELIVERY_FAILED`、`<調査に必要な情報>` に当たる部分が `status=...` `body=...`(`key=value`形式で原因調査用の情報を添えている)です
+- この例は「検知した上で処理も止める」パターンで、`raise`で例外を呼び出し元に伝播させています。理由はコード中のコメントの通りで、re-raiseしないと`AWS/Lambda:Errors`メトリクスに反映されず、Lambdaの実行結果としては「成功」扱いになってしまうためです(詳細は後述の4章)
+
 ### 命名の指針
 
 - `<検知したい事象の名前>` は英大文字+アンダースコア(例: `DYNAMO_READ_FAILED`)で統一する
