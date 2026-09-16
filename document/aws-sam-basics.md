@@ -14,7 +14,7 @@
 
 - SAMとは何か、使うとどんなメリットがあるのか
 - CloudFormationとの違いは何か
-- 今回のアプリでは実際にSAMを使って何を構築しているのか
+- 実際に試したCLI操作(`sam build` / `sam deploy`など)が何をしているのか
 
 を順番に説明します。
 
@@ -67,7 +67,7 @@ SAMには`sam`コマンドという専用のCLIツールがあり、次のよう
 
 ### 3. サーバーレスによくある構成が短く書ける
 
-Lambda関数以外にも、`AWS::Serverless::Api`(API Gateway)や`AWS::Serverless::LayerVersion`(Lambda Layer)など、サーバーレス構成でよく使うリソースがSAM独自の書き方で用意されています。今回のアプリでは、後述する`LineBotSdkLayer`がその例です。
+Lambda関数以外にも、`AWS::Serverless::Api`(API Gateway)や`AWS::Serverless::LayerVersion`(Lambda Layer)など、サーバーレス構成でよく使うリソースがSAM独自の書き方で用意されています。今回のアプリでも、LINEの公式SDKをLambda Layerとして読み込むのにこの書き方を使っています。
 
 ## CloudFormationとの違い
 
@@ -83,56 +83,38 @@ SAMは「別物」ではなく「CloudFormationの上に乗っている拡張」
 
 一番の理解のポイントは、**SAMのテンプレートは最終的にCloudFormationのテンプレートに変換されてからデプロイされる**、という点です。実際、`Lambda1Function`(`AWS::Serverless::Function`)も、デプロイ時には内部で`AWS::Lambda::Function`とS3上のコード配置に変換されています。そのため、SAM独自のリソースタイプと、通常のCloudFormationのリソースタイプが**同じテンプレートの中に混在していても問題ありません**。実際、今回のテンプレートでも、`AWS::Serverless::Function`(SAM)と`AWS::DynamoDB::Table`や`AWS::CloudWatch::Alarm`(通常のCloudFormation)が同じファイルの中に共存しています。
 
-## 今回のユースケース
+## 実際に試したCLI操作
 
-### 何を作っているか
+実際にデプロイする際に使った、次の3つのコマンドが何をしているかを説明します。
 
-改めて整理すると、今回のアプリは次の2つのLambda関数が中心です。
-
-- **Lambda1(`deliver-contents`)**: 毎朝決まった時刻に自動起動し、コンテンツを生成してLINEに配信する
-- **Lambda2(`line-webhook`)**: LINE側からのpostback(ユーザーの操作)を受け取る
-
-これに加えて、データの保存先であるDynamoDBのテーブル、処理が失敗したときにメールで気付けるようにするCloudWatchアラーム一式を、1つのテンプレートファイルの中にまとめて定義しています。
-
-```
-[EventBridge(毎朝)] → Lambda1(コンテンツ生成・LINE配信) → DynamoDB
-                                                         ↑
-[LINEユーザー] → Lambda2(postback受信) ─────────────────┘
+```powershell
+$env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"
 ```
 
-### SAMらしい書き方をしている部分
+SAM CLIはPython製のツールです。Windows環境では、PowerShellの既定の文字コードが日本語ロケール(cp932)になっていることがあり、そのままだとテンプレートやログに含まれる文字の扱いでエラーが出ることがあります。このコマンドは、それを避けるために、Pythonの入出力を強制的にUTF-8として扱わせる環境変数を、コマンド実行前にセットしています。
 
-テンプレート全体を1行ずつ追うのではなく、「これはSAM特有の書き方だ」とわかる代表的な部分だけを抜き出して見ていきます。
+- `PYTHONUTF8="1"`: Pythonの「UTF-8モード」を有効にする。OS側のロケール設定に関係なく、標準入出力などをUTF-8として扱うようになる
+- `PYTHONIOENCODING="utf-8"`: 標準入出力(コンソールへの出力など)のエンコーディングを明示的にUTF-8に指定する
 
-**Lambda関数本体(`AWS::Serverless::Function`)**
+`;`はPowerShellで複数のコマンドを1行にまとめて実行するための区切り文字です。この2つの環境変数は、そのPowerShellのウィンドウを開いている間だけ有効です。
 
-先ほども挙げた`Lambda1Function`が該当します。`CodeUri`でローカルのコードフォルダを指定するだけで、Lambdaへのコードのアップロードを任せられるのがSAMらしいところです。
-
-**Lambda Layer(`AWS::Serverless::LayerVersion`)**
-
-Lambda2は、LINEの公式SDK(`line-bot-sdk`)をLambda Layerとして読み込んでいます。
-
-```json
-"LineBotSdkLayer": {
-  "Type": "AWS::Serverless::LayerVersion",
-  "Properties": {
-    "LayerName": { "Fn::Sub": "${ProjectName}-line-bot-sdk" },
-    "ContentUri": "../line-bot-sdk-layer/",
-    "CompatibleRuntimes": ["python3.12"],
-    "RetentionPolicy": "Delete"
-  }
-}
+```powershell
+sam build --template CloudFormation.json
 ```
 
-Lambda Layerは、複数のLambda関数で共通して使うライブラリなどを外部化して、まとめて読み込ませる仕組みです。これも`AWS::Serverless::Function`と同じく、`ContentUri`にローカルフォルダを指定するだけでよく、通常のCloudFormationの`AWS::Lambda::LayerVersion`よりシンプルに書けます。
+`sam build`は、テンプレートに書いたLambda関数のコード(`CodeUri`で指定したフォルダ)と、必要な依存ライブラリをまとめて、デプロイ用の成果物を作るコマンドです。作られた成果物は`.aws-sam`フォルダの中に置かれます。
 
-**その他のリソースは通常のCloudFormationのまま**
+`sam build`はデフォルトでは`template.yaml`(または`template.yml`)という名前のファイルを探しにいきますが、今回のテンプレートは`CloudFormation.json`という名前で作っているため、`--template`オプションでファイル名を明示的に指定しています。
 
-一方で、DynamoDBのテーブル(`AWS::DynamoDB::Table`)、毎朝の起動スケジュール(`AWS::Events::Rule`)、失敗を検知するCloudWatchアラーム(`AWS::CloudWatch::Alarm`など)は、SAM専用のリソースタイプが用意されていないため、通常のCloudFormationの書き方のまま定義しています。「サーバーレスの定番構成(Lambda・Layer)だけSAMの恩恵を受けて、それ以外は素のCloudFormationで書く」という、両者が混在した構成になっているのが、このテンプレートの特徴です。
+```powershell
+sam deploy
+```
+
+`sam deploy`は、`sam build`で作った成果物を、実際にAWS上にデプロイするコマンドです。内部的には、Lambdaのコードなどを一度S3にアップロードし、それを踏まえたCloudFormationのテンプレートを使って、CloudFormationの「変更セット」を作成・実行します。つまり、「CloudFormationとの違い」で説明した「SAMのテンプレートは最終的にCloudFormationに変換されてからデプロイされる」という流れを、実際に手を動かして反映させているのがこのコマンドです。
 
 ## まとめ
 
 - SAMは、CloudFormationの拡張機能で、Lambda中心のサーバーレス構成を短く書けるようにするもの
 - `Transform: AWS::Serverless-2016-10-31`の1行があるテンプレートがSAM
 - `sam build` / `sam deploy` / `sam local invoke`など専用CLIが使えるのもメリット
-- 今回のアプリでは、Lambda関数本体とLambda Layerだけ`AWS::Serverless::*`(SAM)を使い、DynamoDBやCloudWatchアラームなどは通常のCloudFormationのリソースタイプのまま、1つのテンプレートに混在させている
+- テンプレートファイル名が`template.yaml`でない場合は、`sam build --template <ファイル名>`のように明示的に指定する
